@@ -1,0 +1,56 @@
+name: APK йиғиш
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: ish-bor
+    steps:
+      - uses: actions/checkout@v4
+      - name: ZIP ни очиш
+        working-directory: .
+        run: unzip -q ish-bor.zip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Кутубхоналарни ўрнатиш
+        run: npm install --no-audit --no-fund
+      - name: Android лойиҳасини яратиш
+        run: npx cap add android
+      - name: Хавфсизлик ва иконкаларни қўллаш
+        run: python3 scripts/prepare_android.py
+      - name: Веб файлларни Android га ўтказиш
+        run: npx cap sync android
+      - name: Имзо калитини тайёрлаш
+        run: |
+          set -euo pipefail
+          KS="$RUNNER_TEMP/release.jks"
+          PASS="$(openssl rand -hex 16)"
+          keytool -genkeypair -keystore "$KS" -storepass "$PASS" -keypass "$PASS" -alias ishbor -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Ish Bor"
+          echo "::add-mask::$PASS"
+          echo "KEYSTORE_PATH=$KS" >> "$GITHUB_ENV"
+          echo "KEYSTORE_PASSWORD=$PASS" >> "$GITHUB_ENV"
+          echo "KEY_ALIAS=ishbor" >> "$GITHUB_ENV"
+          echo "KEY_PASSWORD=$PASS" >> "$GITHUB_ENV"
+      - name: APK йиғиш
+        working-directory: ish-bor/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ish-bor-apk
+          path: ish-bor/android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 30
